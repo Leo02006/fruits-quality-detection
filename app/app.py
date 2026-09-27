@@ -1216,7 +1216,7 @@ with video_tab:
                 )
 
             process_video = st.button(
-                "🚀 Process Video & Detect Ripeness",
+                "🚀 Process Video & Detect Quality",
                 type="primary",
                 use_container_width=False,
                 key="process_video_button"
