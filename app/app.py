@@ -1182,7 +1182,7 @@ with video_tab:
                                 Live detection preview
                             </div>
                             <div style="font-size:0.82rem;margin-top:5px;">
-                                Click <b>Process Video & Detect Ripeness</b>
+                                Click <b>Process Video & Detect Quality</b>
                                 to start YOLO detection.
                             </div>
                         </div>
