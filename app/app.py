@@ -1051,6 +1051,29 @@ with image_tab:
 
 # ---------------- Tab 2: Video Detection ----------------
 with video_tab:
+    # Compact video players so both original and detection previews fit
+    # on screen together without excessive scrolling or cropping.
+    st.markdown("""
+        <style>
+        [data-testid="stVideo"] {
+            width: 100% !important;
+            margin: 0 auto !important;
+        }
+
+        [data-testid="stVideo"] video {
+            width: 100% !important;
+            height: 280px !important;
+            object-fit: contain !important;
+            background: #050b16 !important;
+            border-radius: 12px !important;
+        }
+
+        [data-testid="stVideo"] > div {
+            width: 100% !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("""
         <div style="display:flex; align-items:center; gap:10px; margin:14px 0 18px 0; padding:10px 16px;
                     background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.28);
@@ -1116,7 +1139,7 @@ with video_tab:
                 detection_placeholder.markdown(
                     """
                     <div style="
-                        height:260px;
+                        height:280px;
                         display:flex;
                         align-items:center;
                         justify-content:center;
