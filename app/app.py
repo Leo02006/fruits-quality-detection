@@ -831,7 +831,7 @@ st.markdown("""
 # ---------------- Main Navigation Tabs ----------------
 image_tab, video_tab, eda_tab = st.tabs([
     "📸 Image Quality Analysis",
-    "🎥 Live Video Stream",
+    "🎥 Video Quality Analysis",
     "📊 Model Performance & Curves"
 ])
 
