@@ -1470,29 +1470,47 @@ with video_tab:
 
 
 def locate_evaluation_plots(base_dir_str: str):
-    """Load the six pre-generated YOLO evaluation plots bundled with the app."""
-    base_dir = Path(base_dir_str)
-
-    # app.py lives inside the app/ directory, so the plots are stored beside it.
-    plot_dir = base_dir / "evaluation_plots"
+    """Find the six pre-generated evaluation plots in both local and Streamlit layouts."""
+    base_dir = Path(base_dir_str).resolve()
 
     filename_map = {
-        "Normalized Confusion Matrix": "confusion_matrix_normalized.png",
-        "Raw Confusion Matrix": "confusion_matrix.png",
-        "Precision-Recall Curve (PR)": "PR_curve.png",
-        "F1-Confidence Curve": "F1_curve.png",
-        "Precision-Confidence Curve": "P_curve.png",
-        "Recall-Confidence Curve": "R_curve.png",
+        "Normalized Confusion Matrix": ["confusion_matrix_normalized.png"],
+        "Raw Confusion Matrix": ["confusion_matrix.png"],
+        "Precision-Recall Curve (PR)": ["PR_curve.png", "BoxPR_curve.png"],
+        "F1-Confidence Curve": ["F1_curve.png", "BoxF1_curve.png"],
+        "Precision-Confidence Curve": ["P_curve.png", "BoxP_curve.png"],
+        "Recall-Confidence Curve": ["R_curve.png", "BoxR_curve.png"],
     }
 
-    found = {}
-    if plot_dir.is_dir():
-        for title, filename in filename_map.items():
-            fp = plot_dir / filename
-            if fp.is_file():
-                found[title] = str(fp)
+    # Depending on how Streamlit Cloud launches the app, __file__ or the
+    # working directory can resolve to different levels of the repository.
+    candidate_dirs = [
+        base_dir / "evaluation_plots",
+        base_dir / "app" / "evaluation_plots",
+        Path.cwd() / "evaluation_plots",
+        Path.cwd() / "app" / "evaluation_plots",
+        base_dir.parent / "evaluation_plots",
+    ]
 
-    return found, str(plot_dir) if found else None
+    # Remove duplicates while preserving order.
+    candidate_dirs = list(dict.fromkeys(p.resolve() for p in candidate_dirs))
+
+    for plot_dir in candidate_dirs:
+        if not plot_dir.is_dir():
+            continue
+
+        found = {}
+        for title, filenames in filename_map.items():
+            for filename in filenames:
+                fp = plot_dir / filename
+                if fp.is_file():
+                    found[title] = str(fp)
+                    break
+
+        if found:
+            return found, str(plot_dir)
+
+    return {}, None
 
 
 with eda_tab:
