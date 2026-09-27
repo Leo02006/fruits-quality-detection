@@ -1063,8 +1063,8 @@ with video_tab:
     """, unsafe_allow_html=True)
 
     st.caption(
-        "Upload a video and YOLOv8 will analyze it frame-by-frame, "
-        "draw bounding boxes, and generate a downloadable detection video."
+        "Upload a video, preview the original, and generate a YOLOv8 detection video "
+        "with bounding boxes for Ripe, Unripe, Overripe, and Rotten fruits."
     )
 
     if model is None:
@@ -1077,48 +1077,107 @@ with video_tab:
         )
 
         if vid_file is not None:
-            # Keep the source preview compact and centered instead of stretching
-            # across the full Streamlit content area.
-            preview_left, preview_center, preview_right = st.columns([1, 3, 1])
-            with preview_center:
-                st.video(vid_file)
+            # Save upload once so it can be previewed and processed.
+            suffix = Path(vid_file.name).suffix.lower() or ".mp4"
+            upload_preview_path = tempfile.NamedTemporaryFile(
+                delete=False, suffix=suffix
+            ).name
 
-            video_conf = st.slider(
-                "Video Detection Confidence",
-                min_value=0.10,
-                max_value=0.90,
-                value=float(confidence),
-                step=0.05,
-                key="video_confidence"
-            )
+            with open(upload_preview_path, "wb") as f:
+                f.write(vid_file.getbuffer())
 
-            video_iou = st.slider(
-                "Video IoU (NMS Threshold)",
-                min_value=0.05,
-                max_value=1.0,
-                value=float(iou_threshold),
-                step=0.05,
-                key="video_iou"
-            )
+            # ---------------- Side-by-side video area ----------------
+            left_col, right_col = st.columns(2, gap="large")
+
+            with left_col:
+                st.markdown(
+                    """
+                    <div class="panel-header-badge">
+                        <span class="panel-title">📤 Original Video</span>
+                        <span class="panel-chip-ai">INPUT</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.video(upload_preview_path)
+
+            with right_col:
+                st.markdown(
+                    """
+                    <div class="panel-header-badge">
+                        <span class="panel-title">🎯 Detection Video</span>
+                        <span class="panel-chip-ai">YOLOv8 OUTPUT</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                detection_placeholder = st.empty()
+                detection_placeholder.markdown(
+                    """
+                    <div style="
+                        height:260px;
+                        display:flex;
+                        align-items:center;
+                        justify-content:center;
+                        text-align:center;
+                        border:1px dashed rgba(148,163,184,0.30);
+                        border-radius:14px;
+                        background:rgba(15,23,42,0.38);
+                        color:#94a3b8;
+                        padding:20px;
+                    ">
+                        <div>
+                            <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
+                            <div style="font-weight:700;color:#cbd5e1;">
+                                Processed video will appear here
+                            </div>
+                            <div style="font-size:0.82rem;margin-top:5px;">
+                                Bounding boxes and ripeness labels will be added by YOLOv8.
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+            settings_col1, settings_col2 = st.columns(2)
+
+            with settings_col1:
+                video_conf = st.slider(
+                    "Video Detection Confidence",
+                    min_value=0.10,
+                    max_value=0.90,
+                    value=float(confidence),
+                    step=0.05,
+                    key="video_confidence"
+                )
+
+            with settings_col2:
+                video_iou = st.slider(
+                    "Video IoU (NMS Threshold)",
+                    min_value=0.05,
+                    max_value=1.0,
+                    value=float(iou_threshold),
+                    step=0.05,
+                    key="video_iou"
+                )
 
             process_video = st.button(
                 "🚀 Process Video & Detect Ripeness",
                 type="primary",
+                use_container_width=False,
                 key="process_video_button"
             )
 
             if process_video:
-                suffix = Path(vid_file.name).suffix.lower() or ".mp4"
-
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tfile:
-                    tfile.write(vid_file.getbuffer())
-                    video_path = tfile.name
-
                 output_path = tempfile.NamedTemporaryFile(
                     delete=False, suffix=".mp4"
                 ).name
 
-                vcap = cv2.VideoCapture(video_path)
+                vcap = cv2.VideoCapture(upload_preview_path)
 
                 if not vcap.isOpened():
                     st.error("Could not open the uploaded video.")
@@ -1130,8 +1189,7 @@ with video_tab:
                     width = int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH))
                     height = int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-                    # MP4 output. If H.264 is unavailable in the environment,
-                    # the fallback codec below is attempted.
+                    # Keep the original video dimensions for the output.
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
                     writer = cv2.VideoWriter(
                         output_path, fourcc, fps_orig, (width, height)
@@ -1141,16 +1199,12 @@ with video_tab:
                         vcap.release()
                         st.error("Could not create the output video file.")
                     else:
-                        vid_display = st.empty()
                         progress_bar = st.progress(0)
                         status_placeholder = st.empty()
 
                         processed_count = 0
                         total_detections = 0
-                        max_frame_detections = 0
 
-                        # Counts every detected object across processed frames.
-                        # This is a frame-based detection total, not a unique-object tracker.
                         cum_counts = {
                             "overripe": 0,
                             "ripe": 0,
@@ -1177,32 +1231,14 @@ with video_tab:
                                 annotated = res.plot()
                                 writer.write(annotated)
 
-                                # Preview selected processed frames while generating
-                                # the final downloadable video.
-                                if processed_count == 1 or processed_count % 5 == 0:
-                                    preview_rgb = cv2.cvtColor(
-                                        annotated, cv2.COLOR_BGR2RGB
-                                    )
-                                    vid_display.image(
-                                        preview_rgb,
-                                        channels="RGB",
-                                        use_container_width=True
-                                    )
-
                                 boxes = res.boxes
                                 frame_count = len(boxes) if boxes is not None else 0
                                 total_detections += frame_count
-                                max_frame_detections = max(
-                                    max_frame_detections, frame_count
-                                )
 
                                 if boxes is not None:
                                     for b in boxes:
                                         cid = int(b.cls[0].item())
-                                        cname = str(
-                                            model.names.get(cid, "")
-                                        ).lower()
-
+                                        cname = str(model.names.get(cid, "")).lower()
                                         if cname in cum_counts:
                                             cum_counts[cname] += 1
 
@@ -1214,65 +1250,15 @@ with video_tab:
 
                                 status_placeholder.markdown(
                                     f"""
-                                    <div class="metric-grid">
-                                        <div class="minimal-card card-speed">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-speed"></div>
-                                                <span class="card-icon-pill">🎞️</span>
-                                            </div>
-                                            <div class="minimal-label">Frames Processed</div>
-                                            <div class="minimal-value">
-                                                {processed_count}
-                                                <span style="font-size:0.95rem;color:#94a3b8;font-weight:500;">
-                                                    / {total_frames}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        <div class="minimal-card card-total">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-total"></div>
-                                                <span class="card-icon-pill">📦</span>
-                                            </div>
-                                            <div class="minimal-label">Detections</div>
-                                            <div class="minimal-value">{total_detections}</div>
-                                        </div>
-
-                                        <div class="minimal-card card-ripe">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-ripe"></div>
-                                                <span class="card-icon-pill">🍏</span>
-                                            </div>
-                                            <div class="minimal-label">Ripe</div>
-                                            <div class="minimal-value">{cum_counts["ripe"]}</div>
-                                        </div>
-
-                                        <div class="minimal-card card-unripe">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-unripe"></div>
-                                                <span class="card-icon-pill">🍋</span>
-                                            </div>
-                                            <div class="minimal-label">Unripe</div>
-                                            <div class="minimal-value">{cum_counts["unripe"]}</div>
-                                        </div>
-
-                                        <div class="minimal-card card-overripe">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-overripe"></div>
-                                                <span class="card-icon-pill">🍑</span>
-                                            </div>
-                                            <div class="minimal-label">Overripe</div>
-                                            <div class="minimal-value">{cum_counts["overripe"]}</div>
-                                        </div>
-
-                                        <div class="minimal-card card-rotten">
-                                            <div class="card-header-flex">
-                                                <div class="card-indicator ind-rotten"></div>
-                                                <span class="card-icon-pill">🥀</span>
-                                            </div>
-                                            <div class="minimal-label">Rotten</div>
-                                            <div class="minimal-value">{cum_counts["rotten"]}</div>
-                                        </div>
+                                    <div style="
+                                        text-align:center;
+                                        padding:8px;
+                                        color:#94a3b8;
+                                        font-size:0.9rem;
+                                    ">
+                                        Processing frame <b>{processed_count}</b>
+                                        of <b>{total_frames}</b> •
+                                        {total_detections} detections
                                     </div>
                                     """,
                                     unsafe_allow_html=True
@@ -1284,8 +1270,7 @@ with video_tab:
 
                         progress_bar.progress(1.0)
 
-                        # MP4 produced by OpenCV may use a codec that browsers do
-                        # not play reliably. Convert it to H.264 when ffmpeg exists.
+                        # Convert to browser-friendly H.264 when ffmpeg is available.
                         browser_output = output_path
                         converted_path = output_path.replace(
                             ".mp4", "_h264.mp4"
@@ -1302,6 +1287,7 @@ with video_tab:
                                 "-movflags", "+faststart",
                                 converted_path
                             ]
+
                             ffmpeg_result = subprocess.run(
                                 ffmpeg_cmd,
                                 stdout=subprocess.PIPE,
@@ -1315,31 +1301,74 @@ with video_tab:
                                 and os.path.getsize(converted_path) > 0
                             ):
                                 browser_output = converted_path
+
                         except Exception:
                             pass
 
                         if os.path.exists(browser_output):
+                            status_placeholder.empty()
+
                             st.success(
-                                "✅ Video processing completed. "
-                                "All detected fruits have bounding boxes and class labels."
+                                "✅ Video processing completed successfully."
                             )
 
-                            st.markdown("""
-                                <div class="panel-header-badge">
-                                    <span class="panel-title">Processed Detection Video</span>
-                                    <span class="panel-chip-ai">YOLOv8 Output</span>
-                                </div>
-                            """, unsafe_allow_html=True)
+                            # The right-side placeholder cannot reliably be updated
+                            # after the processing loop because Streamlit reruns the
+                            # script. Render the finished result in the same two-column
+                            # presentation below the controls.
+                            result_left, result_right = st.columns(
+                                2, gap="large"
+                            )
 
-                            with open(browser_output, "rb") as output_file:
-                                processed_video_bytes = output_file.read()
+                            with result_left:
+                                st.markdown(
+                                    """
+                                    <div class="panel-header-badge">
+                                        <span class="panel-title">📤 Original Video</span>
+                                        <span class="panel-chip-ai">INPUT</span>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True
+                                )
+                                st.video(upload_preview_path)
 
-                            # Center the processed video and keep it at a
-                            # comfortable viewing size while preserving its
-                            # original aspect ratio.
-                            result_left, result_center, result_right = st.columns([1, 3, 1])
-                            with result_center:
+                            with result_right:
+                                st.markdown(
+                                    """
+                                    <div class="panel-header-badge">
+                                        <span class="panel-title">🎯 Detection Video</span>
+                                        <span class="panel-chip-ai">YOLOv8 OUTPUT</span>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True
+                                )
+
+                                with open(browser_output, "rb") as output_file:
+                                    processed_video_bytes = output_file.read()
+
                                 st.video(processed_video_bytes)
+
+                            st.markdown("<div style='height:12px'></div>",
+                                        unsafe_allow_html=True)
+
+                            summary_cols = st.columns(5)
+
+                            summary_data = [
+                                ("Total Detections", total_detections, "📦"),
+                                ("Ripe", cum_counts["ripe"], "🍏"),
+                                ("Unripe", cum_counts["unripe"], "🍋"),
+                                ("Overripe", cum_counts["overripe"], "🍑"),
+                                ("Rotten", cum_counts["rotten"], "🥀"),
+                            ]
+
+                            for col, (label, value, icon) in zip(
+                                summary_cols, summary_data
+                            ):
+                                with col:
+                                    st.metric(
+                                        f"{icon} {label}",
+                                        value
+                                    )
 
                             st.download_button(
                                 label="📥 Download Processed Detection Video",
@@ -1350,56 +1379,29 @@ with video_tab:
                                 key="download_processed_video"
                             )
 
-                            st.markdown(
-                                f"""
-                                <div class="metric-grid">
-                                    <div class="minimal-card card-total">
-                                        <div class="minimal-label">Total Frame Detections</div>
-                                        <div class="minimal-value">{total_detections}</div>
-                                    </div>
-                                    <div class="minimal-card card-ripe">
-                                        <div class="minimal-label">Ripe</div>
-                                        <div class="minimal-value">{cum_counts["ripe"]}</div>
-                                    </div>
-                                    <div class="minimal-card card-unripe">
-                                        <div class="minimal-label">Unripe</div>
-                                        <div class="minimal-value">{cum_counts["unripe"]}</div>
-                                    </div>
-                                    <div class="minimal-card card-overripe">
-                                        <div class="minimal-label">Overripe</div>
-                                        <div class="minimal-value">{cum_counts["overripe"]}</div>
-                                    </div>
-                                    <div class="minimal-card card-rotten">
-                                        <div class="minimal-label">Rotten</div>
-                                        <div class="minimal-value">{cum_counts["rotten"]}</div>
-                                    </div>
-                                </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
-
                             st.caption(
-                                "Note: counts above represent detections across video frames, "
-                                "not unique fruits. The output video contains the bounding boxes "
-                                "and class labels produced by YOLOv8."
+                                "Detection counts represent detections across video frames, "
+                                "not unique fruits. The output video contains YOLOv8 "
+                                "bounding boxes, class labels, and confidence scores."
                             )
 
                         else:
                             st.error("The processed video could not be created.")
 
-                        # Clean up temporary files after the output has been read.
-                        for temp_path in {
-                            video_path,
-                            output_path,
-                            converted_path
-                        }:
-                            try:
-                                if os.path.exists(temp_path):
-                                    os.remove(temp_path)
-                            except Exception:
-                                pass
+                # Clean up temporary files after processing.
+                for temp_path in {
+                    upload_preview_path,
+                    output_path,
+                    converted_path
+                }:
+                    try:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                    except Exception:
+                        pass
 
 # ---------------- Tab 3: Model Evaluation ----------------
+
 
 with eda_tab:
     st.markdown("""
