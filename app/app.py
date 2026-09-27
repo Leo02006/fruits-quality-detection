@@ -1469,150 +1469,30 @@ with video_tab:
 # ---------------- Tab 3: Model Evaluation ----------------
 
 
-@st.cache_data(show_spinner=False)
 def locate_evaluation_plots(base_dir_str: str):
-    """Find YOLO validation plots anywhere inside the deployed project."""
+    """Load the six pre-generated YOLO evaluation plots bundled with the app."""
     base_dir = Path(base_dir_str)
 
-    # Common YOLO output locations.
-    candidate_dirs = [
-        base_dir / "runs" / "detect" / "val",
-        base_dir / "runs" / "detect" / "val2",
-        base_dir / "runs" / "detect" / "val3",
-        base_dir / "runs" / "detect" / "val4",
-        base_dir / "runs" / "detect" / "val5",
-        base_dir / "runs" / "val",
-        base_dir / "runs" / "segment" / "val",
-        base_dir / "runs" / "classify" / "val",
-        base_dir / "fruit_ripeness_detection" / "runs" / "detect" / "val",
-        Path("runs/detect/val"),
-        Path("runs/detect/val2"),
-        Path("runs/val"),
-    ]
+    # app.py lives inside the app/ directory, so the plots are stored beside it.
+    plot_dir = base_dir / "evaluation_plots"
 
-    # Also discover any directory containing one of the expected plots.
-    discovered = []
-    for root in [base_dir, Path.cwd()]:
-        try:
-            discovered.extend(
-                p.parent for p in root.rglob("confusion_matrix.png")
-                if p.is_file()
-            )
-        except Exception:
-            pass
-
-    dirs = []
-    for d in candidate_dirs + discovered:
-        d = Path(d)
-        if d.exists() and d.is_dir() and d not in dirs:
-            dirs.append(d)
-
-    # YOLO versions use slightly different names for the PR/F1/P/R plots.
-    filename_variants = {
-        "Normalized Confusion Matrix": [
-            "confusion_matrix_normalized.png",
-            "confusion_matrix_normalized.jpg",
-        ],
-        "Raw Confusion Matrix": [
-            "confusion_matrix.png",
-            "confusion_matrix.jpg",
-        ],
-        "Precision-Recall Curve (PR)": [
-            "BoxPR_curve.png",
-            "PR_curve.png",
-            "BoxPR_curve.jpg",
-            "PR_curve.jpg",
-        ],
-        "F1-Confidence Curve": [
-            "BoxF1_curve.png",
-            "F1_curve.png",
-            "BoxF1_curve.jpg",
-            "F1_curve.jpg",
-        ],
-        "Precision-Confidence Curve": [
-            "BoxP_curve.png",
-            "P_curve.png",
-            "BoxP_curve.jpg",
-            "P_curve.jpg",
-        ],
-        "Recall-Confidence Curve": [
-            "BoxR_curve.png",
-            "R_curve.png",
-            "BoxR_curve.jpg",
-            "R_curve.jpg",
-        ],
+    filename_map = {
+        "Normalized Confusion Matrix": "confusion_matrix_normalized.png",
+        "Raw Confusion Matrix": "confusion_matrix.png",
+        "Precision-Recall Curve (PR)": "PR_curve.png",
+        "F1-Confidence Curve": "F1_curve.png",
+        "Precision-Confidence Curve": "P_curve.png",
+        "Recall-Confidence Curve": "R_curve.png",
     }
 
-    for directory in dirs:
-        found = {}
-        for title, variants in filename_variants.items():
-            for filename in variants:
-                fp = directory / filename
-                if fp.exists() and fp.is_file():
-                    found[title] = str(fp)
-                    break
-        if len(found) == len(filename_variants):
-            return found, str(directory)
+    found = {}
+    if plot_dir.is_dir():
+        for title, filename in filename_map.items():
+            fp = plot_dir / filename
+            if fp.is_file():
+                found[title] = str(fp)
 
-    # Return partial results too, so the UI can display whatever exists.
-    partial = {}
-    partial_dir = None
-    for directory in dirs:
-        current = {}
-        for title, variants in filename_variants.items():
-            for filename in variants:
-                fp = directory / filename
-                if fp.exists() and fp.is_file():
-                    current[title] = str(fp)
-                    break
-        if len(current) > len(partial):
-            partial = current
-            partial_dir = str(directory)
-
-    return partial, partial_dir
-
-
-def find_dataset_yaml(base_dir: Path):
-    """Find a likely YOLO dataset YAML without assuming one exact project layout."""
-    candidates = [
-        base_dir / "data.yaml",
-        base_dir / "dataset.yaml",
-        base_dir / "data" / "data.yaml",
-        base_dir / "datasets" / "data.yaml",
-        base_dir / "fruit_ripeness_detection" / "data.yaml",
-    ]
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-
-    # Avoid crawling virtual environments and hidden directories.
-    skip_names = {".git", ".venv", "venv", "env", "node_modules", "__pycache__"}
-    try:
-        for yaml_file in base_dir.rglob("*.yaml"):
-            if any(part in skip_names for part in yaml_file.parts):
-                continue
-            if yaml_file.is_file() and yaml_file.name.lower() in {"data.yaml", "dataset.yaml"}:
-                return yaml_file
-    except Exception:
-        pass
-    return None
-
-
-@st.cache_data(show_spinner="Generating YOLO evaluation plots…")
-def generate_evaluation_plots(model_path: str, data_yaml_path: str):
-    """Run YOLO validation once and return the generated plot paths."""
-    try:
-        eval_model = YOLO(model_path)
-        metrics = eval_model.val(
-            data=data_yaml_path,
-            imgsz=640,
-            plots=True,
-            verbose=False,
-        )
-        save_dir = Path(str(metrics.save_dir))
-        return str(save_dir), None
-    except Exception as exc:
-        return None, str(exc)
+    return found, str(plot_dir) if found else None
 
 
 with eda_tab:
@@ -1663,31 +1543,10 @@ with eda_tab:
 
     st.caption("Training & Validation Analysis Curves")
 
-    # First try to use plots already committed/deployed with the project.
+    # The plots are pre-generated PNGs committed with the project.
+    # No dataset or YOLO validation is required on Streamlit Cloud.
     app_dir = Path(__file__).resolve().parent
     plot_map, plot_dir = locate_evaluation_plots(str(app_dir))
-
-    # If the plot images are not present, automatically run YOLO validation
-    # when a dataset YAML is available. This fixes Streamlit Cloud deployments
-    # where local runs/detect/val was never uploaded to the repository.
-    if len(plot_map) < 6 and model is not None and default_weights:
-        dataset_yaml = find_dataset_yaml(app_dir)
-        if dataset_yaml is not None:
-            generated_dir, generation_error = generate_evaluation_plots(
-                default_weights, str(dataset_yaml)
-            )
-            if generated_dir:
-                # Re-scan the generated directory using the same filename
-                # compatibility logic.
-                generated_map, _ = locate_evaluation_plots(generated_dir)
-                if len(generated_map) >= len(plot_map):
-                    plot_map = generated_map
-                    plot_dir = generated_dir
-            elif generation_error:
-                st.warning(
-                    "Evaluation plots could not be generated automatically. "
-                    f"Reason: {generation_error}"
-                )
 
     ordered_titles = [
         "Normalized Confusion Matrix",
@@ -1718,7 +1577,6 @@ with eda_tab:
                     st.info(f"{title} is not available.")
     else:
         st.info(
-            "Evaluation plots are not available yet. Add the YOLO validation "
-            "plot files to the project, or include data.yaml so the app can "
-            "generate them automatically."
+            "Evaluation plots are not available. Make sure the six PNG files "
+            "are inside app/evaluation_plots/."
         )
