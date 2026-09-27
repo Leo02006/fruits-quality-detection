@@ -1050,6 +1050,16 @@ with image_tab:
         """, unsafe_allow_html=True)
 
 # ---------------- Tab 2: Video Detection ----------------
+st.markdown("""
+<style>
+div[data-testid="stVideo"] video {
+    max-height: 430px !important;
+    width: 100% !important;
+    object-fit: contain !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 with video_tab:
     if "processed_video_bytes" not in st.session_state:
         st.session_state["processed_video_bytes"] = None
