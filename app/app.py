@@ -824,7 +824,7 @@ st.markdown("""
 # ---------------- Main Navigation Tabs ----------------
 image_tab, video_tab, eda_tab = st.tabs([
     "📸 Image Quality Analysis",
-    "🎥 Live Video Stream",
+    "🎥 Video Quality Analysis",
     "📊 Model Performance & Curves"
 ])
 
@@ -1091,7 +1091,7 @@ with video_tab:
             )
 
             process_video = st.button(
-                "🚀 Process Video & Detect Ripeness",
+                "🚀 Process Video & Detect Quality",
                 type="primary",
                 key="process_video_button"
             )
