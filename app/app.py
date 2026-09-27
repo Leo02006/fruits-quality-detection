@@ -1051,6 +1051,13 @@ with image_tab:
 
 # ---------------- Tab 2: Video Detection ----------------
 with video_tab:
+    if "processed_video_bytes" not in st.session_state:
+        st.session_state["processed_video_bytes"] = None
+    if "video_detection_counts" not in st.session_state:
+        st.session_state["video_detection_counts"] = {
+            "total": 0, "ripe": 0, "unripe": 0, "overripe": 0, "rotten": 0
+        }
+
     # Compact video players so both original and detection previews fit
     # on screen together without excessive scrolling or cropping.
     st.markdown("""
@@ -1135,36 +1142,67 @@ with video_tab:
                     unsafe_allow_html=True
                 )
 
-                detection_placeholder = st.empty()
-                detection_placeholder.markdown(
-                    """
-                    <div style="
-                        height:280px;
-                        display:flex;
-                        align-items:center;
-                        justify-content:center;
-                        text-align:center;
-                        border:1px dashed rgba(148,163,184,0.30);
-                        border-radius:14px;
-                        background:rgba(15,23,42,0.38);
-                        color:#94a3b8;
-                        padding:20px;
-                    ">
-                        <div>
-                            <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
-                            <div style="font-weight:700;color:#cbd5e1;">
-                                Processed video will appear here
-                            </div>
-                            <div style="font-size:0.82rem;margin-top:5px;">
-                                Bounding boxes and ripeness labels will be added by YOLOv8.
+                if st.session_state["processed_video_bytes"]:
+                    st.video(st.session_state["processed_video_bytes"])
+                else:
+                    st.markdown(
+                        """
+                        <div style="
+                            height:280px;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            text-align:center;
+                            border:1px dashed rgba(148,163,184,0.30);
+                            border-radius:14px;
+                            background:rgba(15,23,42,0.38);
+                            color:#94a3b8;
+                            padding:20px;
+                        ">
+                            <div>
+                                <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
+                                <div style="font-weight:700;color:#cbd5e1;">
+                                    Processed video will appear here
+                                </div>
+                                <div style="font-size:0.82rem;margin-top:5px;">
+                                    Click <b>Process Video & Detect Ripeness</b> below.
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                        """,
+                        unsafe_allow_html=True
+                    )
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+            if st.session_state["processed_video_bytes"]:
+                counts = st.session_state["video_detection_counts"]
+
+                summary_cols = st.columns(5)
+                summary_data = [
+                    ("Total Detections", counts["total"], "📦"),
+                    ("Ripe", counts["ripe"], "🍏"),
+                    ("Unripe", counts["unripe"], "🍋"),
+                    ("Overripe", counts["overripe"], "🍑"),
+                    ("Rotten", counts["rotten"], "🥀"),
+                ]
+
+                for col, (label, value, icon) in zip(summary_cols, summary_data):
+                    with col:
+                        st.metric(f"{icon} {label}", value)
+
+                st.download_button(
+                    label="📥 Download Processed Detection Video",
+                    data=st.session_state["processed_video_bytes"],
+                    file_name="fruit_ripeness_detection_output.mp4",
+                    mime="video/mp4",
+                    type="primary",
+                    key="download_processed_video"
+                )
+
+                st.caption(
+                    "Counts represent detections across video frames, not unique fruits."
+                )
 
             settings_col1, settings_col2 = st.columns(2)
 
@@ -1225,6 +1263,11 @@ with video_tab:
                         progress_bar = st.progress(0)
                         status_placeholder = st.empty()
 
+                        # Live preview area: the annotated YOLO frame is updated
+                        # repeatedly while the video is being processed.
+                        live_preview = right_col.empty()
+                        live_status = right_col.empty()
+
                         processed_count = 0
                         total_detections = 0
 
@@ -1264,6 +1307,32 @@ with video_tab:
                                         cname = str(model.names.get(cid, "")).lower()
                                         if cname in cum_counts:
                                             cum_counts[cname] += 1
+
+                                # Show the current YOLO-annotated frame live on
+                                # the right side while processing continues.
+                                if processed_count == 1 or processed_count % 2 == 0:
+                                    live_preview.image(
+                                        cv2.cvtColor(
+                                            annotated, cv2.COLOR_BGR2RGB
+                                        ),
+                                        use_container_width=True,
+                                        clamp=True
+                                    )
+                                    live_status.markdown(
+                                        f"""
+                                        <div style="
+                                            text-align:center;
+                                            color:#34d399;
+                                            font-size:0.78rem;
+                                            font-weight:700;
+                                            padding:4px;
+                                        ">
+                                            🔴 LIVE DETECTION PREVIEW •
+                                            Frame {processed_count}/{total_frames}
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
 
                                 if total_frames > 0:
                                     progress = min(
@@ -1335,78 +1404,23 @@ with video_tab:
                                 "✅ Video processing completed successfully."
                             )
 
-                            # The right-side placeholder cannot reliably be updated
-                            # after the processing loop because Streamlit reruns the
-                            # script. Render the finished result in the same two-column
-                            # presentation below the controls.
-                            result_left, result_right = st.columns(
-                                2, gap="large"
+                            with open(browser_output, "rb") as output_file:
+                                st.session_state["processed_video_bytes"] = output_file.read()
+
+                            st.session_state["video_detection_counts"] = {
+                                "total": total_detections,
+                                "ripe": cum_counts["ripe"],
+                                "unripe": cum_counts["unripe"],
+                                "overripe": cum_counts["overripe"],
+                                "rotten": cum_counts["rotten"],
+                            }
+
+                            st.success(
+                                "✅ Video processing completed. "
+                                "The YOLOv8 detection video is now shown in the right panel."
                             )
 
-                            with result_left:
-                                st.markdown(
-                                    """
-                                    <div class="panel-header-badge">
-                                        <span class="panel-title">📤 Original Video</span>
-                                        <span class="panel-chip-ai">INPUT</span>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
-                                st.video(upload_preview_path)
-
-                            with result_right:
-                                st.markdown(
-                                    """
-                                    <div class="panel-header-badge">
-                                        <span class="panel-title">🎯 Detection Video</span>
-                                        <span class="panel-chip-ai">YOLOv8 OUTPUT</span>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
-
-                                with open(browser_output, "rb") as output_file:
-                                    processed_video_bytes = output_file.read()
-
-                                st.video(processed_video_bytes)
-
-                            st.markdown("<div style='height:12px'></div>",
-                                        unsafe_allow_html=True)
-
-                            summary_cols = st.columns(5)
-
-                            summary_data = [
-                                ("Total Detections", total_detections, "📦"),
-                                ("Ripe", cum_counts["ripe"], "🍏"),
-                                ("Unripe", cum_counts["unripe"], "🍋"),
-                                ("Overripe", cum_counts["overripe"], "🍑"),
-                                ("Rotten", cum_counts["rotten"], "🥀"),
-                            ]
-
-                            for col, (label, value, icon) in zip(
-                                summary_cols, summary_data
-                            ):
-                                with col:
-                                    st.metric(
-                                        f"{icon} {label}",
-                                        value
-                                    )
-
-                            st.download_button(
-                                label="📥 Download Processed Detection Video",
-                                data=processed_video_bytes,
-                                file_name="fruit_ripeness_detection_output.mp4",
-                                mime="video/mp4",
-                                type="primary",
-                                key="download_processed_video"
-                            )
-
-                            st.caption(
-                                "Detection counts represent detections across video frames, "
-                                "not unique fruits. The output video contains YOLOv8 "
-                                "bounding boxes, class labels, and confidence scores."
-                            )
+                            st.rerun()
 
                         else:
                             st.error("The processed video could not be created.")
