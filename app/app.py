@@ -22,6 +22,13 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+    /* Video preview sizing */
+    [data-testid="stVideo"] {
+        max-width: 900px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
     /* Global Typography & Smoothing */
     html, body, [class*="css"] {
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -824,7 +831,7 @@ st.markdown("""
 # ---------------- Main Navigation Tabs ----------------
 image_tab, video_tab, eda_tab = st.tabs([
     "📸 Image Quality Analysis",
-    "🎥 Video Quality Analysis",
+    "🎥 Live Video Stream",
     "📊 Model Performance & Curves"
 ])
 
@@ -1070,7 +1077,11 @@ with video_tab:
         )
 
         if vid_file is not None:
-            st.video(vid_file)
+            # Keep the source preview compact and centered instead of stretching
+            # across the full Streamlit content area.
+            preview_left, preview_center, preview_right = st.columns([1, 3, 1])
+            with preview_center:
+                st.video(vid_file)
 
             video_conf = st.slider(
                 "Video Detection Confidence",
@@ -1091,7 +1102,7 @@ with video_tab:
             )
 
             process_video = st.button(
-                "🚀 Process Video & Detect Quality",
+                "🚀 Process Video & Detect Ripeness",
                 type="primary",
                 key="process_video_button"
             )
@@ -1323,7 +1334,12 @@ with video_tab:
                             with open(browser_output, "rb") as output_file:
                                 processed_video_bytes = output_file.read()
 
-                            st.video(processed_video_bytes)
+                            # Center the processed video and keep it at a
+                            # comfortable viewing size while preserving its
+                            # original aspect ratio.
+                            result_left, result_center, result_right = st.columns([1, 3, 1])
+                            with result_center:
+                                st.video(processed_video_bytes)
 
                             st.download_button(
                                 label="📥 Download Processed Detection Video",
