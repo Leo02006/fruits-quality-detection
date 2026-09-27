@@ -8,6 +8,9 @@ import os
 import cv2
 from pathlib import Path
 from io import BytesIO
+import threading
+import av
+from streamlit_webrtc import webrtc_streamer
 
 # Page configuration
 st.set_page_config(
@@ -1054,147 +1057,197 @@ with video_tab:
     if model is None:
         st.error("Model is not loaded. Please verify sidebar weights.")
     elif video_source_type == "Live Webcam":
-        c_col1, c_col2, c_col3 = st.columns([1, 1, 1])
+        c_col1, c_col2 = st.columns([1, 1])
         with c_col1:
-            cam_idx = st.selectbox("Camera Index", [0, 1, 2], index=0)
+            nth_frame = st.slider(
+                "Process Every Nth Frame",
+                min_value=1,
+                max_value=5,
+                value=1,
+                help="Higher values reduce server-side YOLO processing load."
+            )
         with c_col2:
-            nth_frame = st.slider("Process Every Nth Frame", min_value=1, max_value=5, value=1)
-        with c_col3:
-            stream_conf = st.slider("Detection Confidence", min_value=0.10, max_value=0.90, value=float(confidence), step=0.05)
+            stream_conf = st.slider(
+                "Detection Confidence",
+                min_value=0.10,
+                max_value=0.90,
+                value=float(confidence),
+                step=0.05
+            )
 
-        if "webcam_running" not in st.session_state:
-            st.session_state.webcam_running = False
+        st.markdown("""
+            <div style="display:flex; align-items:center; gap:10px; margin:14px 0 10px 0; padding:10px 16px;
+                        background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.28);
+                        border-radius:12px; width:fit-content;">
+                <span class="pulse-dot-online"></span>
+                <span style="font-size:0.82rem; font-weight:700; color:#34d399; letter-spacing:0.04em;">
+                    BROWSER WEBCAM • WEBRTC YOLO DETECTION
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
 
-        b_col1, b_col2 = st.columns([1, 1])
-        with b_col1:
-            if st.button("▶️ Start Live Stream", type="primary", disabled=st.session_state.webcam_running):
-                st.session_state.webcam_running = True
-                st.rerun()
-        with b_col2:
-            if st.button("⏹️ Stop Live Stream", disabled=not st.session_state.webcam_running):
-                st.session_state.webcam_running = False
-                st.rerun()
+        st.caption(
+            "Click START in the webcam panel and allow camera permission. "
+            "The browser camera is streamed to the app for live YOLO detection."
+        )
 
-        if st.session_state.webcam_running:
+        # WebRTC callbacks run outside Streamlit's main thread, so all mutable
+        # processor state is protected with a lock.
+        class FruitWebcamProcessor:
+            def __init__(self):
+                self.model = model
+                self.conf = stream_conf
+                self.iou = iou_threshold
+                self.nth_frame = nth_frame
+                self.frame_i = 0
+                self.last_annotated = None
+                self.last_time = time.perf_counter()
+                self.fps = 0.0
+                self.n_detected = 0
+                self.tallies = {"overripe": 0, "ripe": 0, "rotten": 0, "unripe": 0}
+                self.lock = threading.Lock()
+                self.model_lock = threading.Lock()
+
+            def update_settings(self, conf, iou, nth):
+                with self.lock:
+                    self.conf = conf
+                    self.iou = iou
+                    self.nth_frame = nth
+
+            def process(self, image):
+                self.frame_i += 1
+                with self.lock:
+                    nth = self.nth_frame
+                    conf = self.conf
+                    iou = self.iou
+
+                if self.frame_i % nth != 0 and self.last_annotated is not None:
+                    return self.last_annotated
+
+                # Keep model inference serialized for safety.
+                with self.model_lock:
+                    result = self.model.predict(
+                        source=image,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=640,
+                        verbose=False
+                    )[0]
+
+                annotated = result.plot()
+                boxes = result.boxes
+                n_detected = len(boxes) if boxes is not None else 0
+                tallies = {"overripe": 0, "ripe": 0, "rotten": 0, "unripe": 0}
+
+                if n_detected > 0:
+                    for b in boxes:
+                        cid = int(b.cls[0].item())
+                        cname = str(self.model.names.get(cid, "")).lower()
+                        if cname in tallies:
+                            tallies[cname] += 1
+
+                now = time.perf_counter()
+                dt = now - self.last_time
+                if dt > 0:
+                    instant_fps = 1.0 / dt
+                    self.fps = (0.85 * self.fps) + (0.15 * instant_fps) if self.fps else instant_fps
+                self.last_time = now
+
+                # Add a compact live HUD directly onto the returned video frame.
+                cv2.rectangle(annotated, (10, 10), (355, 112), (8, 12, 22), -1)
+                cv2.rectangle(annotated, (10, 10), (355, 112), (16, 185, 129), 2)
+                hud = [
+                    f"FPS: {self.fps:.1f}",
+                    f"Detected: {n_detected}",
+                    f"Ripe {tallies['ripe']}  Unripe {tallies['unripe']}",
+                    f"Overripe {tallies['overripe']}  Rotten {tallies['rotten']}",
+                ]
+                y = 34
+                for text_line in hud:
+                    cv2.putText(
+                        annotated, text_line, (22, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.58,
+                        (255, 255, 255), 1, cv2.LINE_AA
+                    )
+                    y += 22
+
+                self.last_annotated = annotated
+                self.n_detected = n_detected
+                self.tallies = tallies
+                return annotated
+
+        # Keep one processor instance per Streamlit session so the controls
+        # can be changed without creating duplicate YOLO workers.
+        if "fruit_webrtc_processor" not in st.session_state:
+            st.session_state.fruit_webrtc_processor = FruitWebcamProcessor()
+
+        processor = st.session_state.fruit_webrtc_processor
+        processor.update_settings(stream_conf, iou_threshold, nth_frame)
+
+        def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
+            image = frame.to_ndarray(format="bgr24")
+            annotated = processor.process(image)
+            return av.VideoFrame.from_ndarray(annotated, format="bgr24")
+
+        webrtc_ctx = webrtc_streamer(
+            key="fruit-quality-live-webcam",
+            video_frame_callback=video_frame_callback,
+            media_stream_constraints={"video": True, "audio": False},
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            },
+            media_toggle_controls=True,
+        )
+
+        if webrtc_ctx.state.playing:
             st.markdown("""
-                <div style="display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 8px 16px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 9999px; width: fit-content;">
+                <div style="display:flex; align-items:center; gap:10px; margin:12px 0; padding:8px 16px;
+                            background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.30);
+                            border-radius:9999px; width:fit-content;">
                     <span class="pulse-dot-red"></span>
-                    <span style="font-size: 0.82rem; font-weight: 700; color: #ef4444; letter-spacing: 0.06em;">LIVE CAMERA STREAM RUNNING</span>
+                    <span style="font-size:0.82rem; font-weight:700; color:#ef4444; letter-spacing:0.06em;">
+                        LIVE CAMERA STREAM RUNNING
+                    </span>
                 </div>
             """, unsafe_allow_html=True)
 
-            feed_placeholder = st.empty()
-            hud_placeholder = st.empty()
-
-            cap = cv2.VideoCapture(cam_idx)
-            if not cap.isOpened():
-                st.error(f"Cannot access camera index {cam_idx}.")
-                st.session_state.webcam_running = False
-            else:
-                frame_i = 0
-                t_prev = time.time()
-                current_fps = 0.0
-                last_frame = None
-
-                try:
-                    while st.session_state.webcam_running:
-                        ret, frame = cap.read()
-                        if not ret:
-                            st.warning("Camera stream interrupted.")
-                            break
-
-                        frame_i += 1
-
-                        if frame_i % nth_frame == 0:
-                            res = model.predict(
-                                source=frame,
-                                conf=stream_conf,
-                                iou=iou_threshold,
-                                imgsz=640,
-                                verbose=False
-                            )[0]
-                            annotated_bgr = res.plot()
-                            last_frame = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
-
-                            # Calculate tallies
-                            boxes = res.boxes
-                            n_detected = len(boxes) if boxes is not None else 0
-                            tallies = {"overripe": 0, "ripe": 0, "rotten": 0, "unripe": 0}
-                            if n_detected > 0:
-                                for b in boxes:
-                                    cid = int(b.cls[0].item())
-                                    cname = str(model.names.get(cid, "")).lower()
-                                    if cname in tallies:
-                                        tallies[cname] += 1
-
-                            now = time.time()
-                            dt = now - t_prev
-                            if dt >= 0.5:
-                                current_fps = nth_frame / dt
-                                t_prev = now
-
-                            # Luminous HUD metric update
-                            hud_placeholder.markdown(f"""
-                                <div class="metric-grid">
-                                    <div class="minimal-card card-speed">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-speed"></div>
-                                            <span class="card-icon-pill">⚡</span>
-                                        </div>
-                                        <div class="minimal-label">FPS</div>
-                                        <div class="minimal-value">{current_fps:.1f}</div>
-                                    </div>
-                                    <div class="minimal-card card-total">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-total"></div>
-                                            <span class="card-icon-pill">📦</span>
-                                        </div>
-                                        <div class="minimal-label">Detected</div>
-                                        <div class="minimal-value">{n_detected}</div>
-                                    </div>
-                                    <div class="minimal-card card-ripe">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-ripe"></div>
-                                            <span class="card-icon-pill">🍏</span>
-                                        </div>
-                                        <div class="minimal-label">Ripe</div>
-                                        <div class="minimal-value">{tallies['ripe']}</div>
-                                    </div>
-                                    <div class="minimal-card card-unripe">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-unripe"></div>
-                                            <span class="card-icon-pill">🍋</span>
-                                        </div>
-                                        <div class="minimal-label">Unripe</div>
-                                        <div class="minimal-value">{tallies['unripe']}</div>
-                                    </div>
-                                    <div class="minimal-card card-overripe">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-overripe"></div>
-                                            <span class="card-icon-pill">🍑</span>
-                                        </div>
-                                        <div class="minimal-label">Overripe</div>
-                                        <div class="minimal-value">{tallies['overripe']}</div>
-                                    </div>
-                                    <div class="minimal-card card-rotten">
-                                        <div class="card-header-flex">
-                                            <div class="card-indicator ind-rotten"></div>
-                                            <span class="card-icon-pill">🥀</span>
-                                        </div>
-                                        <div class="minimal-label">Rotten</div>
-                                        <div class="minimal-value">{tallies['rotten']}</div>
-                                    </div>
-                                </div>
-                            """, unsafe_allow_html=True)
-
-                        if last_frame is not None:
-                            feed_placeholder.image(last_frame, channels="RGB", use_container_width=True)
-                        else:
-                            feed_placeholder.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
-
-                        time.sleep(0.01)
-                finally:
-                    cap.release()
+        # These values are displayed outside the WebRTC callback because
+        # Streamlit UI calls are not thread-safe inside media callbacks.
+        if webrtc_ctx.state.playing:
+            st.markdown(f"""
+                <div class="metric-grid">
+                    <div class="minimal-card card-speed">
+                        <div class="card-header-flex"><div class="card-indicator ind-speed"></div><span class="card-icon-pill">⚡</span></div>
+                        <div class="minimal-label">FPS</div>
+                        <div class="minimal-value">{processor.fps:.1f}</div>
+                    </div>
+                    <div class="minimal-card card-total">
+                        <div class="card-header-flex"><div class="card-indicator ind-total"></div><span class="card-icon-pill">📦</span></div>
+                        <div class="minimal-label">Detected</div>
+                        <div class="minimal-value">{processor.n_detected}</div>
+                    </div>
+                    <div class="minimal-card card-ripe">
+                        <div class="card-header-flex"><div class="card-indicator ind-ripe"></div><span class="card-icon-pill">🍏</span></div>
+                        <div class="minimal-label">Ripe</div>
+                        <div class="minimal-value">{processor.tallies['ripe']}</div>
+                    </div>
+                    <div class="minimal-card card-unripe">
+                        <div class="card-header-flex"><div class="card-indicator ind-unripe"></div><span class="card-icon-pill">🍋</span></div>
+                        <div class="minimal-label">Unripe</div>
+                        <div class="minimal-value">{processor.tallies['unripe']}</div>
+                    </div>
+                    <div class="minimal-card card-overripe">
+                        <div class="card-header-flex"><div class="card-indicator ind-overripe"></div><span class="card-icon-pill">🍑</span></div>
+                        <div class="minimal-label">Overripe</div>
+                        <div class="minimal-value">{processor.tallies['overripe']}</div>
+                    </div>
+                    <div class="minimal-card card-rotten">
+                        <div class="card-header-flex"><div class="card-indicator ind-rotten"></div><span class="card-icon-pill">🥀</span></div>
+                        <div class="minimal-label">Rotten</div>
+                        <div class="minimal-value">{processor.tallies['rotten']}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
     elif video_source_type == "Upload Video File":
         vid_file = st.file_uploader("Upload video file (MP4, AVI, MOV)", type=["mp4", "avi", "mov", "mkv"])

@@ -4,3 +4,4 @@ opencv-python-headless
 pillow
 numpy
 pyyaml
+streamlit-webrtc==0.78.1
