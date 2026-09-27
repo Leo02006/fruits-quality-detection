@@ -753,7 +753,7 @@ with st.sidebar:
             </div>
         </div>
         <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 18px; line-height: 1.4;">
-            Automated multi-stage fruits detection powered by YOLOv8.
+            Automated multi-stage fruits detection powered by YOLOv11.
         </div>
     """, unsafe_allow_html=True)
 
@@ -814,11 +814,11 @@ st.markdown("""
                 <div class="hero-icon-bubble">🍎</div>
                 <div>
                     <h1 class="hero-title">Fruits Quality Detection</h1>
-                    <p class="hero-subtitle">High-precision YOLOv8 Computer Vision & Fruits Quality Detector.</p>
+                    <p class="hero-subtitle">High-precision YOLOv11 Computer Vision & Fruits Quality Detector.</p>
                 </div>
             </div>
             <div class="hero-badges-row">
-                <div class="hero-tag">⚡ YOLOv8 Neural Model</div>
+                <div class="hero-tag">⚡ YOLOv11 Neural Model</div>
                 <div class="hero-tag">🎯 4-Stage Classification</div>
                 <div class="status-badge-online">
                     <span class="pulse-dot-online"></span> Engine Online
@@ -875,7 +875,7 @@ with image_tab:
         if model is None:
             st.error("Model weights are not loaded. Check the sidebar.")
         elif run_det:
-            with st.spinner("Processing image with YOLOv8 neural network..."):
+            with st.spinner("Processing image with YOLOv11 neural network..."):
                 t0 = time.perf_counter()
                 results = model.predict(
                     source=selected_image,
@@ -894,7 +894,7 @@ with image_tab:
                 st.markdown("""
                     <div class="panel-header-badge">
                         <span class="panel-title">Quality Inspection</span>
-                        <span class="panel-chip-ai">YOLOv8 Output</span>
+                        <span class="panel-chip-ai">YOLOv11 Output</span>
                     </div>
                 """, unsafe_allow_html=True)
                 st.image(annotated_rgb, use_container_width=True)
@@ -1097,13 +1097,13 @@ with video_tab:
                     border-radius:12px; width:fit-content;">
             <span class="pulse-dot-online"></span>
             <span style="font-size:0.82rem; font-weight:700; color:#34d399; letter-spacing:0.04em;">
-                VIDEO UPLOAD • YOLOv8 DETECTION
+                VIDEO UPLOAD • YOLOv11 DETECTION
             </span>
         </div>
     """, unsafe_allow_html=True)
 
     st.caption(
-        "Upload a video, preview the original, and generate a YOLOv8 detection video "
+        "Upload a video, preview the original, and generate a YOLOv11 detection video "
         "with bounding boxes for Ripe, Unripe, Overripe, and Rotten fruits."
     )
 
@@ -1150,7 +1150,7 @@ with video_tab:
                     """
                     <div class="panel-header-badge">
                         <span class="panel-title">🎯 Live Detection Preview</span>
-                        <span class="panel-chip-ai">YOLOv8 LIVE</span>
+                        <span class="panel-chip-ai">YOLOv11 LIVE</span>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -1430,7 +1430,7 @@ with video_tab:
                 """
                 <div class="panel-header-badge" style="margin-top:18px;">
                     <span class="panel-title">🎬 Processed Detection Video</span>
-                    <span class="panel-chip-ai">YOLOv8 OUTPUT</span>
+                    <span class="panel-chip-ai">YOLOv11 OUTPUT</span>
                 </div>
                 """,
                 unsafe_allow_html=True
