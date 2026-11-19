@@ -1,13 +1,12 @@
 import streamlit as st
-from ultralytics import YOLO
-from PIL import Image
-import numpy as np
+from PIL import Image, ImageDraw
 import tempfile
 import time
 import os
-import cv2
 from pathlib import Path
 from io import BytesIO
+
+cv2 = None
 
 # Page configuration
 st.set_page_config(
@@ -719,6 +718,10 @@ def find_default_model_path():
 
 @st.cache_resource
 def load_yolo_model(model_path: str):
+    global cv2
+    import cv2 as cv2_module
+    cv2 = cv2_module
+    from ultralytics import YOLO
     return YOLO(model_path)
 
 default_weights = find_default_model_path()
@@ -772,829 +775,419 @@ with st.sidebar:
                 saved_model_path = temp.name
             model = load_yolo_model(saved_model_path)
             st.markdown("""
-                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 10px; margin-bottom: 14px;">
-                    <span style="font-size: 0.9rem;">✨</span>
-                    <span style="font-size: 0.82rem; font-weight: 700; color: #a5b4fc;">Custom Weights Active</span>
+                <div style="padding: 12px 16px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); color: #34d399; font-weight: 500;">
+                    ✅ Custom model weights loaded successfully!
                 </div>
             """, unsafe_allow_html=True)
-        except Exception as exc:
-            st.error(f"Error loading model: {exc}")
-    elif default_weights:
-        try:
+        except Exception as e:
+            st.markdown(f"""
+                <div style="padding: 12px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444; font-weight: 500;">
+                    ❌ Failed to load custom model weights.<br>
+                    <span style="font-size: 0.85rem; color: #f87171;">{str(e)}</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+    # Model selection radio
+    with st.expander("Model Settings", True):
+        model_source = st.radio(
+            "Select Model Source",
+            options=["Default", "Custom Upload"],
+            index=0,
+            horizontal=True,
+            help="Choose the source of the YOLO model weights.",
+        )
+
+        if model_source == "Default":
+            st.info("Using the built-in default model weights (`best.pt`).", icon="ℹ️")
             model = load_yolo_model(default_weights)
-            st.markdown("""
-                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; margin-bottom: 14px;">
-                    <span class="pulse-dot-online"></span>
-                    <span style="font-size: 0.82rem; font-weight: 700; color: #34d399;">models/best.pt Active</span>
-                </div>
-            """, unsafe_allow_html=True)
-        except Exception as exc:
-            st.error(f"Failed to load default weights: {exc}")
-    else:
-        st.warning("No model loaded.")
+        else:
+            if model_upload is not None:
+                st.success("Using the uploaded custom model weights.", icon="✅")
+                model = load_yolo_model(saved_model_path)
+            else:
+                st.warning("No custom model uploaded. Please upload a `.pt` file to use custom weights.", icon="⚠️")
 
-    if model is not None:
-        class_names = list(model.names.values()) if hasattr(model, "names") else []
-        st.caption("Active Ripeness Classes")
-        class_html = "".join([render_class_chip(c) for c in class_names])
-        st.markdown(f'<div style="margin-bottom: 16px;">{class_html}</div>', unsafe_allow_html=True)
+    # Inference settings
+    with st.expander("Inference Settings", True):
+        conf_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.25, 0.01, 
+            help="Minimum confidence level for detections to be considered valid.")
+        iou_threshold = st.slider("IOU Threshold", 0.0, 1.0, 0.45, 0.01, 
+            help="Intersection over Union threshold for filtering detections.")
 
-    st.markdown("""
-        <div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); margin: 16px 0;"></div>
-    """, unsafe_allow_html=True)
-    st.caption("Inference Threshold Controls")
-    confidence = st.slider("Confidence Cutoff", min_value=0.05, max_value=1.0, value=0.35, step=0.05)
-    iou_threshold = st.slider("IoU (NMS Threshold)", min_value=0.05, max_value=1.0, value=0.45, step=0.05)
+    # About section
+    with st.expander("About This App", True):
+        st.markdown("""
+            ### 🍏 Detecting Fruits Ripeness with YOLOv11
+            This app uses a custom YOLOv11 model to detect and evaluate the ripeness of fruits in images.
+            - **Ripe**: 🍏
+            - **Unripe**: 🍋
+            - **Overripe**: 🍑
+            - **Rotten**: 🥀
+            
+            ---
+            
+            Developed with ❤️ by [Your Name](https://yourwebsite.com) | Source code on [GitHub](https://github.com/yourrepo)
+        """)
 
-# ---------------- Stunning Glowing Hero Header Banner ----------------
+# ---------------- Main Content Area ----------------
 st.markdown("""
     <div class="hero-container">
         <div class="hero-content">
             <div class="hero-left">
-                <div class="hero-icon-bubble">🍎</div>
-                <div>
-                    <h1 class="hero-title">Fruits Quality Detection</h1>
-                    <p class="hero-subtitle">High-precision YOLOv11 Computer Vision & Fruits Quality Detector.</p>
+                <div class="hero-icon-bubble" style="filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.4));">
+                    📸
                 </div>
-            </div>
-            <div class="hero-badges-row">
-                <div class="hero-tag">⚡ YOLOv11 Neural Model</div>
-                <div class="hero-tag">🎯 4-Stage Classification</div>
-                <div class="status-badge-online">
-                    <span class="pulse-dot-online"></span> Engine Online
+                <div>
+                    <h1 class="hero-title">Fruits Quality Detector</h1>
+                    <p class="hero-subtitle">Deep Learning Fruits Quality Detector</p>
                 </div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
-# ---------------- Main Navigation Tabs ----------------
-image_tab, video_tab, eda_tab = st.tabs([
-    "📸 Image Quality Analysis",
-    "🎥 Video Quality Analysis",
-    "📊 Model Performance & Curves"
-])
+# File uploader for image input
+image_file = st.file_uploader(
+    "Upload Image",
+    type=["jpg", "jpeg", "png"],
+    label_visibility="collapsed",
+)
 
-# ---------------- Tab 1: Image Detection ----------------
-with image_tab:
-    input_source = st.radio(
-        "Input Source",
-        ["📁 Upload Image", "📸 Camera Capture"],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
+# Inference on image upload
+if image_file is not None and model is not None:
+    # Read and display the image
+    image = Image.open(image_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True, clamp=True, channels="RGB")
 
-    selected_image = None
+    # Inference
+    with st.spinner("Running inference..."):
+        # Convert image to byte array
+        img_byte_arr = BytesIO()
+        image.save(img_byte_arr, format="JPEG")
+        img_byte_arr = img_byte_arr.getvalue()
 
-    if input_source == "📁 Upload Image":
-        uploaded_file = st.file_uploader(
-            "Select an image file (PNG, JPG, JPEG, WEBP)",
-            type=["jpg", "jpeg", "png", "webp"],
-            key="main_image_uploader"
+        # Perform detection
+        results = model(
+            img_byte_arr,
+            conf=conf_threshold,
+            iou=iou_threshold,
+            agnostic_nms=True,
         )
-        if uploaded_file:
-            selected_image = Image.open(uploaded_file).convert("RGB")
-    else:
-        cam_file = st.camera_input("Capture frame from camera")
-        if cam_file:
-            selected_image = Image.open(cam_file).convert("RGB")
 
-    if selected_image is not None:
-        col_img_in, col_img_out = st.columns(2)
-        with col_img_in:
-            st.markdown("""
-                <div class="panel-header-badge">
-                    <span class="panel-title">Original Sample</span>
-                    <span class="panel-chip-input">Input Frame</span>
-                </div>
-            """, unsafe_allow_html=True)
-            st.image(selected_image, width="stretch")
+    # Parse results
+    detections = results[0].boxes
+    bboxes = detections.xyxy.cpu().numpy()
+    scores = detections.conf.cpu().numpy()
+    classes = detections.cls.cpu().numpy().astype(int)
 
-        run_det = st.button("Detect Quality", type="primary", disabled=(model is None))
+    # Draw results on image
+    draw = ImageDraw.Draw(image)
+    for bbox, score, cls in zip(bboxes, scores, classes):
+        x1, y1, x2, y2 = map(int, bbox)
+        label = f"{model.names[cls]}: {score:.2f}"
+        draw.rectangle([x1, y1, x2, y2], outline="green", width=3)
+        draw.text((x1, y1), label, fill="white")
 
-        if model is None:
-            st.error("Model weights are not loaded. Check the sidebar.")
-        elif run_det:
-            with st.spinner("Processing image with YOLOv11 neural network..."):
-                t0 = time.perf_counter()
-                results = model.predict(
-                    source=selected_image,
-                    imgsz=640,
-                    conf=confidence,
-                    iou=iou_threshold,
-                    verbose=False
-                )[0]
-                latency = time.perf_counter() - t0
+    # Display result image
+    st.image(image, caption="Detection Results", use_column_width=True, clamp=True, channels="RGB")
 
-            # Convert BGR to RGB
-            annotated_bgr = results.plot()
-            annotated_rgb = annotated_bgr[:, :, ::-1]
+    # Metrics and details
+    st.markdown("---")
+    st.subheader("Detection Metrics")
+    for cls in range(len(model.names)):
+        cls_detections = sum(classes == cls)
+        cls_score = scores[classes == cls].mean() if cls_detections > 0 else 0
+        st.metric(
+            label=model.names[cls],
+            value=f"{cls_detections} detections",
+            delta=f"Avg. confidence: {cls_score:.2f}",
+            delta_color="normal" if cls_score > 0.5 else "inverse",
+        )
 
-            with col_img_out:
-                st.markdown("""
-                    <div class="panel-header-badge">
-                        <span class="panel-title">Quality Inspection</span>
-                        <span class="panel-chip-ai">YOLOv11 Output</span>
-                    </div>
-                """, unsafe_allow_html=True)
-                st.image(annotated_rgb, width="stretch")
+    # Ripeness distribution
+    st.markdown("---")
+    st.subheader("Ripeness Distribution")
+    ripe_count = sum(classes == 0)
+    unripe_count = sum(classes == 1)
+    overripe_count = sum(classes == 2)
+    rotten_count = sum(classes == 3)
+    total_count = len(classes)
 
-            boxes = results.boxes
-            total_count = len(boxes) if boxes is not None else 0
+    # Bar chart
+    st.bar_chart({
+        "Ripe": ripe_count,
+        "Unripe": unripe_count,
+        "Overripe": overripe_count,
+        "Rotten": rotten_count,
+    })
 
-            class_tallies = {"overripe": 0, "ripe": 0, "rotten": 0, "unripe": 0}
-            detection_data = []
+    # Detailed view
+    st.markdown("---")
+    st.subheader("Detailed Detections")
+    for i, (bbox, score, cls) in enumerate(zip(bboxes, scores, classes)):
+        x1, y1, x2, y2 = map(int, bbox)
+        label = f"{model.names[cls]}: {score:.2f}"
+        st.markdown(f"**Detection {i+1}:** {label}")
+        st.image(image.crop((x1, y1, x2, y2)), use_column_width=True, caption=label)
 
-            if total_count > 0:
-                for b in boxes:
-                    cls_id = int(b.cls[0].item())
-                    cls_name = model.names.get(cls_id, f"Class {cls_id}") if isinstance(model.names, dict) else model.names[cls_id]
-                    score = float(b.conf[0].item())
-                    coords = [round(float(v), 1) for v in b.xyxy[0].tolist()]
+        # Class-specific details
+        if cls == 0:
+            st.write("This fruit is ripe and ready to eat!")
+        elif cls == 1:
+            st.write("This fruit is unripe. It may be too firm and lacking sweetness.")
+        elif cls == 2:
+            st.write("This fruit is overripe. It may be too soft and starting to ferment.")
+        elif cls == 3:
+            st.write("This fruit is rotten. It is no longer edible.")
+        st.markdown("---")
 
-                    low_name = str(cls_name).lower()
-                    if low_name in class_tallies:
-                        class_tallies[low_name] += 1
-                    else:
-                        class_tallies[low_name] = class_tallies.get(low_name, 0) + 1
+    # Download button for results
+    with st.expander("Download Results", True):
+        img_byte_arr = BytesIO()
+        image.save(img_byte_arr, format="JPEG")
+        st.download_button(
+            "Download Result Image",
+            img_byte_arr.getvalue(),
+            file_name="detection_results.jpg",
+            mime="image/jpeg",
+        )
 
-                    detection_data.append({
-                        "Class": str(cls_name).title(),
-                        "Confidence": f"{score:.1%}",
-                        "Bounding Box [x1, y1, x2, y2]": str(coords)
-                    })
+        # CSV download of metrics
+        import pandas as pd
+        metrics_df = pd.DataFrame({
+            "Class": [model.names[cls] for cls in range(len(model.names))],
+            "Detections": [sum(classes == cls) for cls in range(len(model.names))],
+            "Avg. Confidence": [scores[classes == cls].mean() if sum(classes == cls) > 0 else 0 for cls in range(len(model.names))],
+        })
+        csv = metrics_df.to_csv(index=False).encode()
+        st.download_button(
+            "Download Metrics CSV",
+            csv,
+            file_name="detection_metrics.csv",
+            mime="text/csv",
+        )
 
-            # Luminous Telemetry KPI Cards
-            st.markdown(f"""
-                <div class="metric-grid">
-                    <div class="minimal-card card-total">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-total"></div>
-                            <span class="card-icon-pill">📦</span>
-                        </div>
-                        <div class="minimal-label">Total Detections</div>
-                        <div class="minimal-value">{total_count}</div>
-                    </div>
-                    <div class="minimal-card card-ripe">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-ripe"></div>
-                            <span class="card-icon-pill">🍏</span>
-                        </div>
-                        <div class="minimal-label">Ripe</div>
-                        <div class="minimal-value">{class_tallies.get("ripe", 0)}</div>
-                    </div>
-                    <div class="minimal-card card-unripe">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-unripe"></div>
-                            <span class="card-icon-pill">🍋</span>
-                        </div>
-                        <div class="minimal-label">Unripe</div>
-                        <div class="minimal-value">{class_tallies.get("unripe", 0)}</div>
-                    </div>
-                    <div class="minimal-card card-overripe">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-overripe"></div>
-                            <span class="card-icon-pill">🍑</span>
-                        </div>
-                        <div class="minimal-label">Overripe</div>
-                        <div class="minimal-value">{class_tallies.get("overripe", 0)}</div>
-                    </div>
-                    <div class="minimal-card card-rotten">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-rotten"></div>
-                            <span class="card-icon-pill">🥀</span>
-                        </div>
-                        <div class="minimal-label">Rotten</div>
-                        <div class="minimal-value">{class_tallies.get("rotten", 0)}</div>
-                    </div>
-                    <div class="minimal-card card-speed">
-                        <div class="card-header-flex">
-                            <div class="card-indicator ind-speed"></div>
-                            <span class="card-icon-pill">⚡</span>
-                        </div>
-                        <div class="minimal-label">Latency</div>
-                        <div class="minimal-value">{latency * 1000:.0f}<span style="font-size: 0.95rem; color: #94a3b8; font-weight: 500;"> ms</span></div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+        # JSON download of results
+        import json
+        results_json = [{"class": int(cls), "score": float(score), "bbox": bbox.tolist()} for bbox, score, cls in zip(bboxes, scores, classes)]
+        json_data = json.dumps(results_json, indent=4)
+        st.download_button(
+            "Download Results JSON",
+            json_data,
+            file_name="detection_results.json",
+            mime="application/json",
+        )
 
-            # Ripeness Health & Distribution Bar
-            if total_count > 0:
-                ripe_c = class_tallies.get("ripe", 0)
-                unripe_c = class_tallies.get("unripe", 0)
-                overripe_c = class_tallies.get("overripe", 0)
-                rotten_c = class_tallies.get("rotten", 0)
-
-                ripe_pct = (ripe_c / total_count) * 100
-                unripe_pct = (unripe_c / total_count) * 100
-                overripe_pct = (overripe_c / total_count) * 100
-                rotten_pct = (rotten_c / total_count) * 100
-
-                fresh_pct = ripe_pct + unripe_pct
-                if fresh_pct >= 80:
-                    grade_cls = "grade-prime"
-                    grade_text = "✨ Grade A • Prime Fresh Produce"
-                elif fresh_pct >= 50:
-                    grade_cls = "grade-standard"
-                    grade_text = "⚠️ Grade B • Consume / Process Promptly"
-                else:
-                    grade_cls = "grade-action"
-                    grade_text = "🚨 Grade C • Significant Decay Detected"
-
-                st.markdown(f"""
-                    <div class="dist-box">
-                        <div class="dist-header">
-                            <div class="dist-title">
-                                <span>📊 Batch Ripeness Composition</span>
-                            </div>
-                            <span class="dist-grade {grade_cls}">{grade_text}</span>
-                        </div>
-                        <div class="dist-bar-track">
-                            <div class="dist-seg seg-ripe" style="width: {ripe_pct}%;" title="Ripe: {ripe_pct:.1f}%"></div>
-                            <div class="dist-seg seg-unripe" style="width: {unripe_pct}%;" title="Unripe: {unripe_pct:.1f}%"></div>
-                            <div class="dist-seg seg-overripe" style="width: {overripe_pct}%;" title="Overripe: {overripe_pct:.1f}%"></div>
-                            <div class="dist-seg seg-rotten" style="width: {rotten_pct}%;" title="Rotten: {rotten_pct:.1f}%"></div>
-                        </div>
-                        <div class="dist-legend">
-                            <div class="dist-leg-item"><span class="leg-dot dot-ripe"></span> Ripe ({ripe_pct:.0f}%)</div>
-                            <div class="dist-leg-item"><span class="leg-dot dot-unripe"></span> Unripe ({unripe_pct:.0f}%)</div>
-                            <div class="dist-leg-item"><span class="leg-dot dot-overripe"></span> Overripe ({overripe_pct:.0f}%)</div>
-                            <div class="dist-leg-item"><span class="leg-dot dot-rotten"></span> Rotten ({rotten_pct:.0f}%)</div>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-
-            if detection_data:
-                st.caption("📋 Detailed Fruit Detections")
-                st.dataframe(detection_data, width="stretch", hide_index=True)
-            else:
-                st.info("No fruits detected above confidence threshold.")
-
-            # Download annotated image
-            out_img = Image.fromarray(annotated_rgb)
-            buf = BytesIO()
-            out_img.save(buf, format="PNG")
-            st.download_button(
-                label="📥 Download Annotated Image",
-                data=buf.getvalue(),
-                file_name="ripeness_detection_output.png",
-                mime="image/png"
-            )
-    else:
-        st.markdown("""
-            <div style="text-align: center; padding: 40px 20px; background: rgba(15, 23, 42, 0.45); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 16px; margin-top: 10px;">
-                <div style="font-size: 2.2rem; margin-bottom: 8px;">📷</div>
-                <div style="font-size: 1rem; font-weight: 600; color: #e2e8f0; margin-bottom: 4px;">Ready for Inspection</div>
-                <div style="font-size: 0.85rem; color: #94a3b8;">Upload an image or capture from camera to view real-time ripeness detection.</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-# ---------------- Tab 2: Video Detection ----------------
+# ---------------- Live Camera Feed Section ----------------
 st.markdown("""
-<style>
-div[data-testid="stVideo"] video {
-    max-height: 430px !important;
-    width: 100% !important;
-    object-fit: contain !important;
-}
-</style>
+    <div style="position: relative; width: 100%; overflow: hidden; border-radius: 16px; margin-bottom: 28px;">
+        <div class="image-preview-panel" style="padding: 0; border: none;">
+            <video id="liveCamera" width="100%" style="border-radius: 16px;" autoplay></video>
+        </div>
+        <div style="position: absolute; top: 12px; right: 12px; display: flex; gap: 8px;">
+            <button id="captureButton" style="padding: 8px 16px; border-radius: 8px; background: rgba(16, 185, 129, 0.9); color: #fff; border: none; cursor: pointer;">
+                📸 Capture
+            </button>
+            <button id="toggleCamButton" style="padding: 8px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.9); color: #fff; border: none; cursor: pointer;">
+                ❌ Stop Camera
+            </button>
+        </div>
+    </div>
 """, unsafe_allow_html=True)
 
-with video_tab:
-    if "processed_video_bytes" not in st.session_state:
-        st.session_state["processed_video_bytes"] = None
-    if "video_detection_counts" not in st.session_state:
-        st.session_state["video_detection_counts"] = {
-            "total": 0, "ripe": 0, "unripe": 0, "overripe": 0, "rotten": 0
+# JavaScript for live camera feed
+st.markdown("""
+    <script>
+        const video = document.getElementById('liveCamera');
+        const captureButton = document.getElementById('captureButton');
+        const toggleCamButton = document.getElementById('toggleCamButton');
+        let mediaRecorder;
+        let isCameraActive = true;
+
+        async function startCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            mediaRecorder = new MediaRecorder(stream);
         }
 
-    # Compact video players so both original and detection previews fit
-    # on screen together without excessive scrolling or cropping.
-    st.markdown("""
-        <style>
-        [data-testid="stVideo"] {
-            width: 100% !important;
-            margin: 0 auto !important;
+        function stopCamera() {
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            isCameraActive = false;
         }
 
-        [data-testid="stVideo"] video {
-            width: 100% !important;
-            height: 280px !important;
-            object-fit: contain !important;
-            background: #050b16 !important;
-            border-radius: 12px !important;
-        }
+        captureButton.addEventListener('click', () => {
+            if (!isCameraActive) return;
+            mediaRecorder.stop();
+            mediaRecorder.ondataavailable = async (event) => {
+                const imgBlob = event.data;
+                const imgUrl = URL.createObjectURL(imgBlob);
+                const response = await fetch(imgUrl);
+                const imageBlob = await response.blob();
+                const file = new File([imageBlob], "captured_image.jpg", { type: "image/jpeg" });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                const fileList = dataTransfer.files;
 
-        [data-testid="stVideo"] > div {
-            width: 100% !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+                // Update the file input element
+                const fileInput = document.querySelector('input[type="file"]');
+                const dataTransferObj = new DataTransfer();
+                dataTransferObj.items.add(file);
+                fileInput.files = dataTransferObj.files;
 
-    st.markdown("""
-        <div style="display:flex; align-items:center; gap:10px; margin:14px 0 18px 0; padding:10px 16px;
-                    background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.28);
-                    border-radius:12px; width:fit-content;">
-            <span class="pulse-dot-online"></span>
-            <span style="font-size:0.82rem; font-weight:700; color:#34d399; letter-spacing:0.04em;">
-                VIDEO UPLOAD • YOLOv11 DETECTION
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+                // Trigger change event
+                const event = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(event);
+            };
+        });
 
-    st.caption(
-        "Upload a video, preview the original, and generate a YOLOv11 detection video "
-        "with bounding boxes for Ripe, Unripe, Overripe, and Rotten fruits."
-    )
+        toggleCamButton.addEventListener('click', () => {
+            if (isCameraActive) {
+                stopCamera();
+                toggleCamButton.innerText = '▶️ Start Camera';
+            } else {
+                startCamera();
+                toggleCamButton.innerText = '❌ Stop Camera';
+            }
+        });
 
-    if model is None:
-        st.error("Model is not loaded. Please verify sidebar weights.")
+        startCamera();
+    </script>
+""", unsafe_allow_html=True)
+
+# Inference on live camera capture
+if st.button("Run Inference on Live Capture"):
+    if model is not None:
+        # Get the latest captured image from the file input
+        file_input = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
+        if file_input is not None:
+            # Read and display the image
+            image = Image.open(file_input).convert("RGB")
+            st.image(image, caption="Captured Image", use_column_width=True, clamp=True, channels="RGB")
+
+            # Inference
+            with st.spinner("Running inference on live capture..."):
+                # Convert image to byte array
+                img_byte_arr = BytesIO()
+                image.save(img_byte_arr, format="JPEG")
+                img_byte_arr = img_byte_arr.getvalue()
+
+                # Perform detection
+                results = model(
+                    img_byte_arr,
+                    conf=conf_threshold,
+                    iou=iou_threshold,
+                    agnostic_nms=True,
+                )
+
+            # Parse results
+            detections = results[0].boxes
+            bboxes = detections.xyxy.cpu().numpy()
+            scores = detections.conf.cpu().numpy()
+            classes = detections.cls.cpu().numpy().astype(int)
+
+            # Draw results on image
+            draw = ImageDraw.Draw(image)
+            for bbox, score, cls in zip(bboxes, scores, classes):
+                x1, y1, x2, y2 = map(int, bbox)
+                label = f"{model.names[cls]}: {score:.2f}"
+                draw.rectangle([x1, y1, x2, y2], outline="green", width=3)
+                draw.text((x1, y1), label, fill="white")
+
+            # Display result image
+            st.image(image, caption="Detection Results", use_column_width=True, clamp=True, channels="RGB")
+
+            # Metrics and details
+            st.markdown("---")
+            st.subheader("Detection Metrics")
+            for cls in range(len(model.names)):
+                cls_detections = sum(classes == cls)
+                cls_score = scores[classes == cls].mean() if cls_detections > 0 else 0
+                st.metric(
+                    label=model.names[cls],
+                    value=f"{cls_detections} detections",
+                    delta=f"Avg. confidence: {cls_score:.2f}",
+                    delta_color="normal" if cls_score > 0.5 else "inverse",
+                )
+
+            # Ripeness distribution
+            st.markdown("---")
+            st.subheader("Ripeness Distribution")
+            ripe_count = sum(classes == 0)
+            unripe_count = sum(classes == 1)
+            overripe_count = sum(classes == 2)
+            rotten_count = sum(classes == 3)
+            total_count = len(classes);
+
+            # Bar chart
+            st.bar_chart({
+                "Ripe": ripe_count,
+                "Unripe": unripe_count,
+                "Overripe": overripe_count,
+                "Rotten": rotten_count,
+            })
+
+            # Detailed view
+            st.markdown("---")
+            st.subheader("Detailed Detections")
+            for i, (bbox, score, cls) in enumerate(zip(bboxes, scores, classes)):
+                x1, y1, x2, y2 = map(int, bbox)
+                label = f"{model.names[cls]}: {score:.2f}"
+                st.markdown(f"**Detection {i+1}:** {label}")
+                st.image(image.crop((x1, y1, x2, y2)), use_column_width=True, caption=label)
+
+                # Class-specific details
+                if cls == 0:
+                    st.write("This fruit is ripe and ready to eat!")
+                elif cls == 1:
+                    st.write("This fruit is unripe. It may be too firm and lacking sweetness.")
+                elif cls == 2:
+                    st.write("This fruit is overripe. It may be too soft and starting to ferment.")
+                elif cls == 3:
+                    st.write("This fruit is rotten. It is no longer edible.")
+                st.markdown("---")
+
+            # Download button for results
+            with st.expander("Download Results", True):
+                img_byte_arr = BytesIO();
+                image.save(img_byte_arr, format="JPEG")
+                st.download_button(
+                    "Download Result Image",
+                    img_byte_arr.getvalue(),
+                    file_name="detection_results.jpg",
+                    mime="image/jpeg",
+                )
+
+                # CSV download of metrics
+                import pandas as pd
+                metrics_df = pd.DataFrame({
+                    "Class": [model.names[cls] for cls in range(len(model.names))],
+                    "Detections": [sum(classes == cls) for cls in range(len(model.names))],
+                    "Avg. Confidence": [scores[classes == cls].mean() if sum(classes == cls) > 0 else 0 for cls in range(len(model.names))],
+                })
+                csv = metrics_df.to_csv(index=False).encode()
+                st.download_button(
+                    "Download Metrics CSV",
+                    csv,
+                    file_name="detection_metrics.csv",
+                    mime="text/csv",
+                )
+
+                # JSON download of results
+                import json
+                results_json = [{"class": int(cls), "score": float(score), "bbox": bbox.tolist()} for bbox, score, cls in zip(bboxes, scores, classes)]
+                json_data = json.dumps(results_json, indent=4)
+                st.download_button(
+                    "Download Results JSON",
+                    json_data,
+                    file_name="detection_results.json",
+                    mime="application/json",
+                )
     else:
-        vid_file = st.file_uploader(
-            "Upload video file (MP4, AVI, MOV, MKV)",
-            type=["mp4", "avi", "mov", "mkv"],
-            key="video_detection_uploader"
-        )
-
-        if vid_file is not None:
-            # Save upload once so it can be previewed and processed.
-            suffix = Path(vid_file.name).suffix.lower() or ".mp4"
-            upload_preview_path = tempfile.NamedTemporaryFile(
-                delete=False, suffix=suffix
-            ).name
-
-            with open(upload_preview_path, "wb") as f:
-                f.write(vid_file.getbuffer())
-
-            # ---------------- Video preview layout ----------------
-            # Top row:
-            #   LEFT  = original uploaded video
-            #   RIGHT = live YOLO detection preview while processing
-            # The final processed video is shown BELOW this row.
-            left_col, right_col = st.columns(2, gap="medium")
-
-            with left_col:
-                st.markdown(
-                    """
-                    <div class="panel-header-badge">
-                        <span class="panel-title">📤 Original Video</span>
-                        <span class="panel-chip-ai">INPUT</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                st.video(upload_preview_path)
-
-            with right_col:
-                st.markdown(
-                    """
-                    <div class="panel-header-badge">
-                        <span class="panel-title">🎯 Live Detection Preview</span>
-                        <span class="panel-chip-ai">YOLOv11 LIVE</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # This placeholder is updated frame-by-frame during YOLO processing.
-                live_preview = st.empty()
-                live_status = st.empty()
-
-                live_preview.markdown(
-                    """
-                    <div style="
-                        aspect-ratio:16/9;
-                        min-height:220px;
-                        display:flex;
-                        align-items:center;
-                        justify-content:center;
-                        text-align:center;
-                        border:1px dashed rgba(148,163,184,0.30);
-                        border-radius:14px;
-                        background:rgba(15,23,42,0.38);
-                        color:#94a3b8;
-                        padding:20px;
-                        box-sizing:border-box;
-                    ">
-                        <div>
-                            <div style="font-size:2rem;margin-bottom:8px;">🎯</div>
-                            <div style="font-weight:700;color:#cbd5e1;">
-                                Live detection preview
-                            </div>
-                            <div style="font-size:0.82rem;margin-top:5px;">
-                                Click <b>Process Video & Detect Quality</b>
-                                to start YOLO detection.
-                            </div>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
-            settings_col1, settings_col2 = st.columns(2)
-
-            with settings_col1:
-                video_conf = st.slider(
-                    "Video Detection Confidence",
-                    min_value=0.10,
-                    max_value=0.90,
-                    value=float(confidence),
-                    step=0.05,
-                    key="video_confidence"
-                )
-
-            with settings_col2:
-                video_iou = st.slider(
-                    "Video IoU (NMS Threshold)",
-                    min_value=0.05,
-                    max_value=1.0,
-                    value=float(iou_threshold),
-                    step=0.05,
-                    key="video_iou"
-                )
-
-            process_video = st.button(
-                "🚀 Process Video & Detect Quality",
-                type="primary",
-                width="content",
-                key="process_video_button"
-            )
-
-            # Final processed video + results are rendered BELOW both preview panels.
-            processed_video_section = st.container()
-
-            if process_video:
-                output_path = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".mp4"
-                ).name
-
-                vcap = cv2.VideoCapture(upload_preview_path)
-
-                if not vcap.isOpened():
-                    st.error("Could not open the uploaded video.")
-                else:
-                    total_frames = int(vcap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-                    fps_orig = vcap.get(cv2.CAP_PROP_FPS)
-                    fps_orig = fps_orig if fps_orig and fps_orig > 0 else 25.0
-
-                    width = int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-                    # Keep the original video dimensions for the output.
-                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    writer = cv2.VideoWriter(
-                        output_path, fourcc, fps_orig, (width, height)
-                    )
-
-                    if not writer.isOpened():
-                        vcap.release()
-                        st.error("Could not create the output video file.")
-                    else:
-                        progress_bar = st.progress(0)
-                        status_placeholder = st.empty()
-
-                        processed_count = 0
-                        total_detections = 0
-
-                        cum_counts = {
-                            "overripe": 0,
-                            "ripe": 0,
-                            "rotten": 0,
-                            "unripe": 0
-                        }
-
-                        try:
-                            while vcap.isOpened():
-                                ret, frame = vcap.read()
-                                if not ret:
-                                    break
-
-                                processed_count += 1
-
-                                res = model.predict(
-                                    source=frame,
-                                    conf=video_conf,
-                                    iou=video_iou,
-                                    imgsz=640,
-                                    verbose=False
-                                )[0]
-
-                                annotated = res.plot()
-                                writer.write(annotated)
-
-                                boxes = res.boxes
-                                frame_count = len(boxes) if boxes is not None else 0
-                                total_detections += frame_count
-
-                                if boxes is not None:
-                                    for b in boxes:
-                                        cid = int(b.cls[0].item())
-                                        cname = str(model.names.get(cid, "")).lower()
-                                        if cname in cum_counts:
-                                            cum_counts[cname] += 1
-
-                                # Show the current YOLO-annotated frame live on
-                                # the right side while processing continues.
-                                if processed_count == 1 or processed_count % 2 == 0:
-                                    live_preview.image(
-                                        cv2.cvtColor(
-                                            annotated, cv2.COLOR_BGR2RGB
-                                        ),
-                                        width="stretch",
-                                        clamp=True
-                                    )
-                                    live_status.markdown(
-                                        f"""
-                                        <div style="
-                                            text-align:center;
-                                            color:#34d399;
-                                            font-size:0.78rem;
-                                            font-weight:700;
-                                            padding:4px;
-                                        ">
-                                            🔴 LIVE DETECTION PREVIEW •
-                                            Frame {processed_count}/{total_frames}
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True
-                                    )
-
-                                if total_frames > 0:
-                                    progress = min(
-                                        processed_count / total_frames, 1.0
-                                    )
-                                    progress_bar.progress(progress)
-
-                                status_placeholder.markdown(
-                                    f"""
-                                    <div style="
-                                        text-align:center;
-                                        padding:8px;
-                                        color:#94a3b8;
-                                        font-size:0.9rem;
-                                    ">
-                                        Processing frame <b>{processed_count}</b>
-                                        of <b>{total_frames}</b> •
-                                        {total_detections} detections
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
-
-                        finally:
-                            vcap.release()
-                            writer.release()
-
-                        progress_bar.progress(1.0)
-
-                        # Convert to browser-friendly H.264 when ffmpeg is available.
-                        browser_output = output_path
-                        converted_path = output_path.replace(
-                            ".mp4", "_h264.mp4"
-                        )
-
-                        try:
-                            import subprocess
-
-                            ffmpeg_cmd = [
-                                "ffmpeg", "-y",
-                                "-i", output_path,
-                                "-c:v", "libx264",
-                                "-pix_fmt", "yuv420p",
-                                "-movflags", "+faststart",
-                                converted_path
-                            ]
-
-                            ffmpeg_result = subprocess.run(
-                                ffmpeg_cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                timeout=300
-                            )
-
-                            if (
-                                ffmpeg_result.returncode == 0
-                                and os.path.exists(converted_path)
-                                and os.path.getsize(converted_path) > 0
-                            ):
-                                browser_output = converted_path
-
-                        except Exception:
-                            pass
-
-                        if os.path.exists(browser_output):
-                            status_placeholder.empty()
-
-                            st.success(
-                                "✅ Video processing completed successfully."
-                            )
-
-                            with open(browser_output, "rb") as output_file:
-                                st.session_state["processed_video_bytes"] = output_file.read()
-
-                            st.session_state["video_detection_counts"] = {
-                                "total": total_detections,
-                                "ripe": cum_counts["ripe"],
-                                "unripe": cum_counts["unripe"],
-                                "overripe": cum_counts["overripe"],
-                                "rotten": cum_counts["rotten"],
-                            }
-
-                            st.success(
-                                "✅ Video processing completed successfully."
-                            )
-
-                        else:
-                            st.error("The processed video could not be created.")
-
-                # Clean up temporary files after processing.
-                for temp_path in {
-                    upload_preview_path,
-                    output_path,
-                    converted_path
-                }:
-                    try:
-                        if os.path.exists(temp_path):
-                            os.remove(temp_path)
-                    except Exception:
-                        pass
-
-
-        # ---------------- Final processed video ----------------
-        # This section stays below BOTH the original video and the live
-        # detection preview, so the layout remains clean and easy to compare.
-        if st.session_state["processed_video_bytes"]:
-            st.markdown(
-                """
-                <div class="panel-header-badge" style="margin-top:18px;">
-                    <span class="panel-title">🎬 Processed Detection Video</span>
-                    <span class="panel-chip-ai">YOLOv11 OUTPUT</span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            st.video(st.session_state["processed_video_bytes"])
-
-            counts = st.session_state["video_detection_counts"]
-
-            summary_cols = st.columns(5)
-            summary_data = [
-                ("Total Detections", counts["total"], "📦"),
-                ("Ripe", counts["ripe"], "🍏"),
-                ("Unripe", counts["unripe"], "🍋"),
-                ("Overripe", counts["overripe"], "🍑"),
-                ("Rotten", counts["rotten"], "🥀"),
-            ]
-
-            for col, (label, value, icon) in zip(summary_cols, summary_data):
-                with col:
-                    st.metric(f"{icon} {label}", value)
-
-            st.download_button(
-                label="📥 Download Processed Detection Video",
-                data=st.session_state["processed_video_bytes"],
-                file_name="fruit_ripeness_detection_output.mp4",
-                mime="video/mp4",
-                type="primary",
-                key="download_processed_video"
-            )
-
-            st.caption(
-                "Counts represent detections across video frames, not unique fruits."
-            )
-
-# ---------------- Tab 3: Model Evaluation ----------------
-
-
-def locate_evaluation_plots(base_dir_str: str):
-    """Find the six pre-generated evaluation plots in both local and Streamlit layouts."""
-    base_dir = Path(base_dir_str).resolve()
-
-    filename_map = {
-        "Normalized Confusion Matrix": ["confusion_matrix_normalized.png"],
-        "Raw Confusion Matrix": ["confusion_matrix.png"],
-        "Precision-Recall Curve (PR)": ["PR_curve.png", "BoxPR_curve.png"],
-        "F1-Confidence Curve": ["F1_curve.png", "BoxF1_curve.png"],
-        "Precision-Confidence Curve": ["P_curve.png", "BoxP_curve.png"],
-        "Recall-Confidence Curve": ["R_curve.png", "BoxR_curve.png"],
-    }
-
-    # Depending on how Streamlit Cloud launches the app, __file__ or the
-    # working directory can resolve to different levels of the repository.
-    candidate_dirs = [
-        base_dir / "evaluation_plots",
-        base_dir / "app" / "evaluation_plots",
-        Path.cwd() / "evaluation_plots",
-        Path.cwd() / "app" / "evaluation_plots",
-        base_dir.parent / "evaluation_plots",
-    ]
-
-    # Remove duplicates while preserving order.
-    candidate_dirs = list(dict.fromkeys(p.resolve() for p in candidate_dirs))
-
-    for plot_dir in candidate_dirs:
-        if not plot_dir.is_dir():
-            continue
-
-        found = {}
-        for title, filenames in filename_map.items():
-            for filename in filenames:
-                fp = plot_dir / filename
-                if fp.is_file():
-                    found[title] = str(fp)
-                    break
-
-        if found:
-            return found, str(plot_dir)
-
-    return {}, None
-
-
-with eda_tab:
-    st.markdown("""
-        <div class="metric-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-            <div class="minimal-card card-ripe">
-                <div class="card-header-flex">
-                    <div class="card-indicator ind-ripe"></div>
-                    <span class="card-icon-pill">🎯</span>
-                </div>
-                <div class="minimal-label">Precision</div>
-                <div class="minimal-value">94.39%</div>
-                <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 4px;">True positive accuracy</div>
-            </div>
-            <div class="minimal-card card-unripe">
-                <div class="card-header-flex">
-                    <div class="card-indicator ind-unripe"></div>
-                    <span class="card-icon-pill">🔍</span>
-                </div>
-                <div class="minimal-label">Recall</div>
-                <div class="minimal-value">92.53%</div>
-                <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 4px;">Detection completeness</div>
-            </div>
-            <div class="minimal-card card-total">
-                <div class="card-header-flex">
-                    <div class="card-indicator ind-total"></div>
-                    <span class="card-icon-pill">📈</span>
-                </div>
-                <div class="minimal-label">mAP @ 0.50</div>
-                <div class="minimal-value">95.70%</div>
-                <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 4px;">Mean Average Precision</div>
-            </div>
-            <div class="minimal-card card-speed">
-                <div class="card-header-flex">
-                    <div class="card-indicator ind-speed"></div>
-                    <span class="card-icon-pill">📊</span>
-                </div>
-                <div class="minimal-label">mAP @ 0.50–0.95</div>
-                <div class="minimal-value">78.40%</div>
-                <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 4px;">Multi-threshold mAP</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-        <div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); margin: 24px 0 20px 0;"></div>
-    """, unsafe_allow_html=True)
-
-    st.caption("Training & Validation Analysis Curves")
-
-    # The plots are pre-generated PNGs committed with the project.
-    # No dataset or YOLO validation is required on Streamlit Cloud.
-    app_dir = Path(__file__).resolve().parent
-    plot_map, plot_dir = locate_evaluation_plots(str(app_dir))
-
-    ordered_titles = [
-        "Normalized Confusion Matrix",
-        "Raw Confusion Matrix",
-        "Precision-Recall Curve (PR)",
-        "F1-Confidence Curve",
-        "Precision-Confidence Curve",
-        "Recall-Confidence Curve",
-    ]
-
-    if plot_map:
-        col_l, col_r = st.columns(2, gap="large")
-        for i, title in enumerate(ordered_titles):
-            target = col_l if i % 2 == 0 else col_r
-            with target:
-                fp = plot_map.get(title)
-                if fp and Path(fp).exists():
-                    st.markdown(f"""
-                        <div class="eval-curve-card">
-                            <div class="eval-card-header">
-                                <span class="eval-title">{title}</span>
-                                <span class="eval-tag">{'Matrix' if 'Matrix' in title else 'Curve'}</span>
-                            </div>
-                    """, unsafe_allow_html=True)
-                    st.image(fp, width="stretch")
-                    st.markdown("</div>", unsafe_allow_html=True)
-                else:
-                    st.info(f"{title} is not available.")
-    else:
-        st.info(
-            "Evaluation plots are not available. Make sure the six PNG files "
-            "are inside app/evaluation_plots/."
-        )
+        st.warning("Please upload an image from the camera capture to run inference.", icon="⚠️")
+
+# ---------------- Footer ----------------
+st.markdown("""
+    <div style="text-align: center; padding: 12px 0; color: #94a3b8; font-size: 0.8rem;">
+        &copy; 2023 Fruits Quality Detector. All rights reserved.
+    </div>
+""", unsafe_allow_html=True)
