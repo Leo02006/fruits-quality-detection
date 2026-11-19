@@ -868,7 +868,7 @@ with image_tab:
                     <span class="panel-chip-input">Input Frame</span>
                 </div>
             """, unsafe_allow_html=True)
-            st.image(selected_image, use_container_width=True)
+            st.image(selected_image, width="stretch")
 
         run_det = st.button("Detect Quality", type="primary", disabled=(model is None))
 
@@ -897,7 +897,7 @@ with image_tab:
                         <span class="panel-chip-ai">YOLOv11 Output</span>
                     </div>
                 """, unsafe_allow_html=True)
-                st.image(annotated_rgb, use_container_width=True)
+                st.image(annotated_rgb, width="stretch")
 
             boxes = results.boxes
             total_count = len(boxes) if boxes is not None else 0
@@ -1026,7 +1026,7 @@ with image_tab:
 
             if detection_data:
                 st.caption("📋 Detailed Fruit Detections")
-                st.dataframe(detection_data, use_container_width=True, hide_index=True)
+                st.dataframe(detection_data, width="stretch", hide_index=True)
             else:
                 st.info("No fruits detected above confidence threshold.")
 
@@ -1218,7 +1218,7 @@ with video_tab:
             process_video = st.button(
                 "🚀 Process Video & Detect Quality",
                 type="primary",
-                use_container_width=False,
+                width="content",
                 key="process_video_button"
             )
 
@@ -1302,7 +1302,7 @@ with video_tab:
                                         cv2.cvtColor(
                                             annotated, cv2.COLOR_BGR2RGB
                                         ),
-                                        use_container_width=True,
+                                        width="stretch",
                                         clamp=True
                                     )
                                     live_status.markdown(
@@ -1589,7 +1589,7 @@ with eda_tab:
                                 <span class="eval-tag">{'Matrix' if 'Matrix' in title else 'Curve'}</span>
                             </div>
                     """, unsafe_allow_html=True)
-                    st.image(fp, use_container_width=True)
+                    st.image(fp, width="stretch")
                     st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info(f"{title} is not available.")
